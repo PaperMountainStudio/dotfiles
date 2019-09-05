@@ -1,0 +1,94 @@
+#!/bin/sh
+# requirements:
+# TODO: too hacky
+command -v firejail || sh -c 'notify-send "firejail not installed"; exit 1' || exit 1
+command -v dmenu || sh -c 'notify-send "dmenu not installed"; exit 1' || exit 1
+command -v surf || sh -c 'notify-send "surf not installed"; exit 1' || exit 1
+
+beginswith() { case "$2" in "$1"*) true;; *) false;; esac; }
+
+# defaults
+link="https://duckduckgo.com"
+cookies="$HOME/.surf/cookies_general.txt"
+hostsfile="$HOME/adblock_hosts"
+flags="--nosound"
+
+if [ -n "$1" ]; then
+    link="$1"
+else
+    result="$(printf "search\nurl\ngeneral\ndiscord\ntranslate\nmessenger\nprivate\ngodoc\nlocalhost:8000\nhttp://\nhttps://" | dmenu)"
+
+    beginswith "https://" "$result"
+    is_https_url="$?"
+    beginswith "http://" "$result"
+    is_http_url="$?"
+
+    if [ "$result" = "search" ]; then
+        # get search query and create url
+        link="https://duckduckgo.com/?q="$(echo | dmenu)
+        # if search query is not supplied, redirect to duckduckgo homepage
+        if [ -z "$link" ]; then
+            link="https://duckduckgo.com"
+        fi
+        # replace cookies with static ones to make tracking harder
+        rm "$HOME/.surf/cookies_fresh_ddg.txt"
+        cp "$HOME/.surf/cookies_static_ddg.txt" "$HOME/.surf/cookies_fresh_ddg.txt"
+        cookies="$HOME/.surf/cookies_fresh_ddg.txt"
+        flags=
+
+    elif [ "$result" = "url" ] || [ "$is_http_url" -eq 0 ] || [ "$is_https_url" -eq 0 ]; then
+        # get url
+        if [ "$result" = "url" ]; then
+            link=$(echo | dmenu)
+        else
+            link="$result"
+        fi
+        # reset cookies
+        # but also preserve some settings
+        rm "$HOME/.surf/cookies_fresh_ddg.txt"
+        cp "$HOME/.surf/cookies_static_ddg.txt" "$HOME/.surf/cookies_fresh_ddg.txt"
+        cookies="$HOME/.surf/cookies_fresh_ddg.txt"
+        flags=
+
+    elif [ "$result" = "discord" ]; then
+        link="https://discordapp.com/app/"
+        cookies="$HOME/.surf/cookies_discord.txt"
+
+    elif [ "$result" = "translate" ]; then
+        link="https://translate.google.com"
+        cookies="/dev/null"
+
+    elif [ "$result" = "general" ]; then
+        flags=
+
+    elif [ "$result" = "private" ]; then
+        link="https://duckduckgo.com"
+        cookies="/dev/null"
+
+    elif [ "$result" = "localhost:8000" ]; then
+        link="localhost:8000"
+        cookies="/dev/null"
+        flags=
+
+    elif [ "$result" = "messenger" ]; then
+        link="https://facebook.com/messages/"
+        cookies="$HOME/.surf/cookies_facebook.txt"
+
+    elif [ "$result" = "godoc" ]; then
+        link="localhost:6060/pkg"
+        cookies="/dev/null"
+        if [ "$(pidof godoc | wc -w)" -ge 1 ]; then
+            godoc -goroot /usr/lib/go/ -http=localhost:6060 &
+        fi
+
+    else
+        echo "wrong input, exiting" >> ~/.surfstartlog
+        echo "input: $result" >> ~/.surfstartlog
+        exit 1
+    fi
+fi
+
+firejail --noprofile \
+    --hosts-file="$hostsfile" $flags \
+    surf -c "$cookies" \
+    "$link"
